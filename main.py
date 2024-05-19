@@ -16,6 +16,7 @@ class app_object:
     canvas: tk.Canvas
     id: int
     outline_id: int = None
+    _editable: list[str] = ["x", "y", "height", "angle"]
 
     def __init__(self, name) -> None:
         self.name = name
@@ -33,6 +34,10 @@ class app_object:
 
     def edit(self):
         pass
+
+    def delete(self):
+        self.deselect()
+        self.canvas.delete(self.id)
 
     def select(self):
         if not self.outline_id:
@@ -162,6 +167,17 @@ class object_manager(ttk.Frame):
             )
             obj.draw(self.canvas)
 
+    def remove_object(self, obj: Type[app_object]):
+        if not obj:
+            return
+        obj.delete()
+        self.objects.remove(obj)
+        self.obj_lists[type(obj).__name__].set(
+            [str(o) for o in self.objects if type(o) is type(obj)]
+        )
+        if self.selected is obj:
+            self.selected = None
+
     def object_from_attr(
         self,
         **kwargs,
@@ -188,9 +204,12 @@ class object_manager(ttk.Frame):
         if event.keysym == "Escape":
             self.selected = self.selected.deselect()
             return
+        if event.keysym == "Delete":
+            self.selected = self.remove_object(self.selected)
+            return
         self.selected.handle_keys(event)
 
-    def find_closest_limited(self, x:int, y:int):
+    def find_closest_limited(self, x: int, y: int):
         id = self.canvas.find_closest(x, y)
         if not id:
             return None
@@ -203,13 +222,13 @@ class object_manager(ttk.Frame):
             item_x = (item_coords[0] + item_coords[2]) / 2
             item_y = (item_coords[1] + item_coords[3]) / 2
         else:
-            item_x,item_y = item_coords
+            item_x, item_y = item_coords
         # Calculate the distance between the given coordinates and the item's center
-        distance = np.linalg.norm((item_x - x,item_y - y))
+        distance = np.linalg.norm((item_x - x, item_y - y))
 
         # Check if the distance is within the specified radius
         return None if distance > 10 else id[0]
-        
+
     def handle_click(self, event: tk.Event):
         if event.widget is self.canvas:
             self.canvas.focus_set()
