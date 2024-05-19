@@ -1,7 +1,9 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, simpledialog
-from typing import Type
+from typing import Type, Optional
 from functools import partial
+import numpy as np
+import math
 
 FREQ = 900  # MHz
 
@@ -19,10 +21,6 @@ class app_object:
         self.name = name
 
     def handle_keys(self, event: tk.Event):
-        if event.keysym == "Escape":
-            return self.deselect()
-        elif not self.outline_id:
-            return
         step = 5 * (10 if event.state & 4 != 0 else 1)  # check if CTRL is pressed
         if event.keysym == "Down":
             self.set_position(self.x, self.y + step)
@@ -33,13 +31,15 @@ class app_object:
         elif event.keysym == "Right":
             self.set_position(self.x + step, self.y)
 
-    def select(self, event: tk.Event):
+    def edit(self):
+        pass
+
+    def select(self):
         if not self.outline_id:
             self.outline_id = self.canvas.create_oval(
                 *self.canvas.bbox(self.id), outline="red"
             )
         self.canvas.focus_set()
-        self.canvas.bind("<Key>", self.handle_keys)
 
     def deselect(self):
         self.canvas.delete(self.outline_id)
@@ -63,7 +63,6 @@ class app_object:
 
     def make_movable(self, id: int) -> int:
         self.id = id
-        self.canvas.tag_bind(id, "<Button-1>", self.select)
         self.canvas.tag_bind(id, "<B1-Motion>", self.drag)
         return id
 
@@ -91,6 +90,7 @@ class app_object:
 
 
 class BTS(app_object):
+
     def draw(self, canvas: tk.Canvas) -> int:
         from icons import BTS_ICON as icon
 
@@ -123,8 +123,9 @@ class Obstacle(app_object):
 
 
 class object_manager(ttk.Frame):
-    objects: dict[str, list[Type[app_object]]] = {}
+    objects: list[Type[app_object]] = []
     obj_lists: dict[str, tk.StringVar] = {}
+    selected: Type[app_object] = None
 
     def __init__(self, master, canvas: tk.Canvas):
         self.canvas = canvas
@@ -132,11 +133,10 @@ class object_manager(ttk.Frame):
         self.pack(fill=tk.BOTH, pady=5, expand=True)
 
     def register_class(self, cls: Type[app_object]):
-        if len(self.objects.keys()) > 0:
+        if len(self.obj_lists.keys()) > 0:
             s = ttk.Separator(self, orient=tk.HORIZONTAL)
             s.pack(side=tk.TOP, fill=tk.X, pady=5)
         self.obj_lists[cls.__name__] = tk.StringVar()
-        self.objects[cls.__name__] = list()
         frame = ttk.Frame(self)
         frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         label = ttk.Label(frame, text=cls.__name__, padding=[5, 0])
@@ -147,6 +147,7 @@ class object_manager(ttk.Frame):
         add_button.grid(row=0, column=1, sticky="E")
         listbox = tk.Listbox(frame, listvariable=self.obj_lists[cls.__name__], height=5)
         listbox.grid(row=1, columnspan=2, sticky="NSEW")
+        listbox.bind("<Button-1>", self.handle_click)
         frame.rowconfigure(1, weight=1)
 
     def add_new(self, cls: Type[app_object]):
@@ -155,14 +156,89 @@ class object_manager(ttk.Frame):
         )
         if name:
             obj = cls(name)
-            self.objects[cls.__name__].append(obj)
+            self.objects.append(obj)
             self.obj_lists[cls.__name__].set(
-                [str(obj) for obj in self.objects[cls.__name__]]
+                [str(obj) for obj in self.objects if type(obj) is cls]
             )
             obj.draw(self.canvas)
 
+    def object_from_attr(
+        self,
+        **kwargs,
+        # id: Optional[int] = None,
+        # name: Optional[str]=None,
+    ) -> Type[app_object] | None:
+        attr = tuple(kwargs.keys())[0]
+        for obj in self.objects:
+            if getattr(obj, attr) == kwargs[attr]:
+                return obj
+        return None
+
+    def select_object(self, obj):
+        if self.selected and self.selected is not obj:
+            self.selected.deselect()
+        self.selected = obj
+        if obj:
+            obj.select()
+        return obj
+
+    def handle_keys(self, event: tk.Event):
+        if self.selected is None:
+            return
+        if event.keysym == "Escape":
+            self.selected = self.selected.deselect()
+            return
+        self.selected.handle_keys(event)
+
+    def find_closest_limited(self, x:int, y:int):
+        id = self.canvas.find_closest(x, y)
+        if not id:
+            return None
+        item_coords = self.canvas.coords(id)
+        if not item_coords:
+            return None
+
+        # Calculate the center of the item
+        if len(item_coords) == 4:
+            item_x = (item_coords[0] + item_coords[2]) / 2
+            item_y = (item_coords[1] + item_coords[3]) / 2
+        else:
+            item_x,item_y = item_coords
+        # Calculate the distance between the given coordinates and the item's center
+        distance = np.linalg.norm((item_x - x,item_y - y))
+
+        # Check if the distance is within the specified radius
+        return None if distance > 10 else id[0]
+        
+    def handle_click(self, event: tk.Event):
+        if event.widget is self.canvas:
+            self.canvas.focus_set()
+            id = self.find_closest_limited(event.x, event.y)
+            if id is None:
+                return
+            self.select_object(self.object_from_attr(id=id))
+        else:
+            lb: tk.Listbox = event.widget
+            if len(lb.curselection()) == 0:
+                return
+            self.select_object(self.object_from_attr(name=lb.get(lb.curselection()[0])))
+
     def handle_right_click(self, event: tk.Event):
-        print(event.widget, event.widget.find_closest(event.x, event.y))
+        if event.widget is self.canvas:
+            self.canvas.focus_set()
+            id = self.find_closest_limited(event.x, event.y)
+            if id is None:
+                return
+            obj = self.select_object(self.object_from_attr(id=id))
+        else:
+            lb: tk.Listbox = event.widget
+            if len(lb.curselection()) == 0:
+                return
+            obj = self.select_object(
+                self.object_from_attr(name=lb.get(lb.curselection()[0]))
+            )
+        if obj:
+            obj.edit()
 
         # selected_id = self.canvas.find_closest(event.x, event.y)[0]
         # for obj in objects:
@@ -188,7 +264,9 @@ class App(ttk.Frame):
         self.OM.register_class(UE)
         self.OM.register_class(Obstacle)
 
+        self.canvas.bind("<Button-1>", self.OM.handle_click)
         self.canvas.bind("<Button-3>", self.OM.handle_right_click)
+        self.canvas.bind("<Key>", self.OM.handle_keys)
 
     def get_minsize(self):
         return (
