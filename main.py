@@ -6,17 +6,32 @@ import numpy as np
 import math
 
 FREQ = 900  # MHz
+def center_Toplevel(top: tk.Toplevel):
+    # Update the main window and Toplevel window to ensure they have a size
+    top.master.update_idletasks()
+    top.update_idletasks()
+    # Calculate the position to center the Toplevel window on the main window
+    position_right = (
+        top.master.winfo_rootx()
+        + (top.master.winfo_width() - top.winfo_reqwidth()) // 2
+    )
+    position_down = (
+        top.master.winfo_rooty()
+        + (top.master.winfo_height() - top.winfo_reqheight()) // 2
+    )
+
+    # Set the geometry of the Toplevel window to place it at the calculated position
+    top.geometry(f"+{position_right}+{position_down}")
+    top.minsize(top.winfo_reqwidth(), top.winfo_reqheight())
 
 
 class app_object:
     x: int = 10
     y: int = 10
-    height: float = 1.5
-    angle: float = 0.0
     canvas: tk.Canvas
     id: int
     outline_id: int = None
-    _editable: list[str] = ["x", "y", "height", "angle"]
+    _editable: list[str] = []
 
     def __init__(self, name) -> None:
         self.name = name
@@ -32,8 +47,36 @@ class app_object:
         elif event.keysym == "Right":
             self.set_position(self.x + step, self.y)
 
+    def save_properties(self, prop_window):
+        def prop(name):
+            return prop_window.entries[name].get()
+
+        self.name = prop("name")
+        self.set_position(int(prop("x")), int(prop("y")))
+        for param in self._editable:
+            setattr(self, param, type(getattr(self, param))(prop(param)))
+        prop_window.destroy()
+
     def edit(self):
-        pass
+        window = tk.Toplevel(self.canvas.master, padx=10, pady=5)
+        window.entries = dict()
+        tk.Label(window, text="Edit Properties").grid(columnspan=4)
+        for i, param in enumerate(("name", "x", "y", *self._editable), 1):
+            tk.Label(window, text=f"{param}:").grid(row=i, column=1)
+            e = tk.Entry(window)
+            e.grid(row=i, column=2)
+            e.insert(0, getattr(self, param))
+            window.entries[param] = e
+
+        save_button = tk.Button(
+            window, text="Save", command=lambda: self.save_properties(window)
+        )
+        save_button.grid(row=i + 1, column=1, columnspan=2)
+
+        window.grid_columnconfigure([0, 4], weight=1, pad=10)
+        window.grid_rowconfigure(tuple(range(i + 1)), pad=5)
+        center_Toplevel(window)
+        return window
 
     def delete(self):
         self.deselect()
@@ -203,13 +246,14 @@ class object_manager(ttk.Frame):
             return
         if event.keysym == "Escape":
             self.selected = self.selected.deselect()
-            return
-        if event.keysym == "Delete":
+        if event.keysym == "e":
+            self.selected.edit()
+        elif event.keysym == "Delete":
             self.selected = self.remove_object(self.selected)
-            return
-        self.selected.handle_keys(event)
+        else:
+            self.selected.handle_keys(event)
 
-    def find_closest_limited(self, x: int, y: int):
+    def find_closest_limited(self, x: int, y: int, limit: int = 10):
         id = self.canvas.find_closest(x, y)
         if not id:
             return None
@@ -227,7 +271,7 @@ class object_manager(ttk.Frame):
         distance = np.linalg.norm((item_x - x, item_y - y))
 
         # Check if the distance is within the specified radius
-        return None if distance > 10 else id[0]
+        return None if distance > limit else id[0]
 
     def handle_click(self, event: tk.Event):
         if event.widget is self.canvas:
@@ -258,15 +302,6 @@ class object_manager(ttk.Frame):
             )
         if obj:
             obj.edit()
-
-        # selected_id = self.canvas.find_closest(event.x, event.y)[0]
-        # for obj in objects:
-        #     if obj.id == selected_id:
-        #         menu = tk.Menu(root, tearoff=0)
-        #         menu.add_command(label="Edit Properties", command=obj.edit_properties)
-        #         if obj.obj_type == "Obstacle":
-        #             menu.add_command(label="Load File", command=obj.load_file)
-        #         menu.post(event.x_root, event.y_root)
 
 
 class App(ttk.Frame):
