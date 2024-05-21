@@ -76,6 +76,7 @@ class app_object:
         window.grid_columnconfigure([0, 4], weight=1, pad=10)
         window.grid_rowconfigure(tuple(range(i + 1)), pad=5)
         center_Toplevel(window)
+        window.focus_set()
         return window
 
     def delete(self):
@@ -246,7 +247,7 @@ class object_manager(ttk.Frame):
             return
         if event.keysym == "Escape":
             self.selected = self.selected.deselect()
-        if event.keysym == "e":
+        elif event.keysym == "e":
             self.selected.edit()
         elif event.keysym == "Delete":
             self.selected = self.remove_object(self.selected)

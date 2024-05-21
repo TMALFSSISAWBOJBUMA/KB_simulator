@@ -7,7 +7,7 @@ SIZE = (24, 24)
 
 def load_resize_icon(file: str, size: tuple[int, int] = SIZE):
     with Image.open(os.path.join(__file__, os.pardir, file)) as img:
-        resized_image = img.resize(size, Image.ANTIALIAS)
+        resized_image = img.resize(size, Image.Resampling.LANCZOS)
         return PhotoImage(resized_image)
 
 
