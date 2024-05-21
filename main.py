@@ -6,6 +6,8 @@ import numpy as np
 import math
 
 FREQ = 900  # MHz
+
+
 def center_Toplevel(top: tk.Toplevel):
     # Update the main window and Toplevel window to ensure they have a size
     top.master.update_idletasks()
@@ -47,33 +49,49 @@ class app_object:
         elif event.keysym == "Right":
             self.set_position(self.x + step, self.y)
 
-    def save_properties(self, prop_window):
-        def prop(name):
-            return prop_window.entries[name].get()
+    def _save_editables(self, window):
+        for param in self._editable:
+            setattr(
+                self, param, type(getattr(self, param))(window.entries[param].get())
+            )
+        return True
 
+    def save_properties(self, window):
+        prop = window.prop
         self.name = prop("name")
         self.set_position(int(prop("x")), int(prop("y")))
-        for param in self._editable:
-            setattr(self, param, type(getattr(self, param))(prop(param)))
-        prop_window.destroy()
+        if self._save_editables(window):
+            window.destroy()
 
-    def edit(self):
-        window = tk.Toplevel(self.canvas.master, padx=10, pady=5)
-        window.entries = dict()
-        tk.Label(window, text="Edit Properties").grid(columnspan=4)
-        for i, param in enumerate(("name", "x", "y", *self._editable), 1):
+    def _edit_editables(self, window: tk.Toplevel):
+        for i, param in enumerate(self._editable, start=window.grid_size()[0]):
             tk.Label(window, text=f"{param}:").grid(row=i, column=1)
             e = tk.Entry(window)
             e.grid(row=i, column=2)
             e.insert(0, getattr(self, param))
             window.entries[param] = e
 
+    def edit(self):
+        window = tk.Toplevel(self.canvas.master, padx=10, pady=5)
+        window.entries = dict()
+        window.prop = lambda property: window.entries[property].get()
+        tk.Label(window, text="Edit Properties").grid(columnspan=4)
+        for i, param in enumerate(("name", "x", "y"), 1):
+            tk.Label(window, text=f"{param}:").grid(row=i, column=1)
+            e = tk.Entry(window)
+            e.grid(row=i, column=2)
+            e.insert(0, getattr(self, param))
+            window.entries[param] = e
+
+        self._edit_editables(window)
+        i = window.grid_size()[0]
+
         save_button = tk.Button(
             window, text="Save", command=lambda: self.save_properties(window)
         )
         save_button.grid(row=i + 1, column=1, columnspan=2)
 
-        window.grid_columnconfigure([0, 4], weight=1, pad=10)
+        window.grid_columnconfigure([0, window.grid_size()[1]-1], weight=1, pad=10)
         window.grid_rowconfigure(tuple(range(i + 1)), pad=5)
         center_Toplevel(window)
         window.focus_set()
@@ -106,7 +124,7 @@ class app_object:
                 self.y - self.size,
                 self.x + self.size,
                 self.y + self.size,
-                fill="red",
+                fill="black",
             )
         )
 
@@ -168,7 +186,15 @@ class UE(app_object):
 
 
 class Obstacle(app_object):
-    pass
+    size: int = 4
+    _editable = ["size"]
+    
+    def _save_editables(self, window):
+        if not super()._save_editables(window):
+            return False
+        self.set_position(self.x, self.y)
+        return True
+    
 
 
 class object_manager(ttk.Frame):
