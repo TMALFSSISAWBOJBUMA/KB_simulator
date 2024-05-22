@@ -3,7 +3,7 @@ An app built for the Wireless Communication course.
 
 ![Main app view with devices placed in the test space](previews/main.png)
 
-It let's you place base stations, recivers and obstacles in open space and check if a connection between devices can be achieved.
+It lets you place base stations, recivers and obstacles in open space and check if a connection between devices can be achieved.
 
 ## Setup
 
