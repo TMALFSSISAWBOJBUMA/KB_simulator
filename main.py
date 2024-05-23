@@ -6,6 +6,7 @@ import numpy as np
 import math
 
 FREQ = 900  # MHz
+SIM_SIZE = (700, 1000)
 
 
 def center_Toplevel(top: tk.Toplevel):
@@ -31,7 +32,7 @@ class app_object:
     x: int = 10
     y: int = 10
     canvas: tk.Canvas
-    id: int
+    id: int = None
     outline_id: int = None
     _editable: list[str] = []
 
@@ -84,14 +85,14 @@ class app_object:
             window.entries[param] = e
 
         self._edit_editables(window)
-        i = window.grid_size()[0]
+        i = window.grid_size()[1]
 
         save_button = tk.Button(
             window, text="Save", command=lambda: self.save_properties(window)
         )
         save_button.grid(row=i + 1, column=1, columnspan=2)
 
-        window.grid_columnconfigure([0, window.grid_size()[1]-1], weight=1, pad=10)
+        window.grid_columnconfigure([0, window.grid_size()[1] - 1], weight=1, pad=10)
         window.grid_rowconfigure(tuple(range(i + 1)), pad=5)
         center_Toplevel(window)
         window.focus_set()
@@ -188,13 +189,12 @@ class UE(app_object):
 class Obstacle(app_object):
     size: int = 4
     _editable = ["size"]
-    
+
     def _save_editables(self, window):
         if not super()._save_editables(window):
             return False
         self.set_position(self.x, self.y)
         return True
-    
 
 
 class object_manager(ttk.Frame):
@@ -348,15 +348,12 @@ class App(ttk.Frame):
         self.canvas.bind("<Button-1>", self.OM.handle_click)
         self.canvas.bind("<Button-3>", self.OM.handle_right_click)
         self.canvas.bind("<Key>", self.OM.handle_keys)
-
-    def get_minsize(self):
-        return (
-            self.winfo_reqwidth() + 10,
-            self.winfo_reqheight() + 10,
+        master.update_idletasks()
+        master.minsize(self.winfo_reqwidth() + 10, self.winfo_reqheight() + 10)
+        master.maxsize(
+            self.OM.winfo_reqwidth() + s.winfo_reqwidth() + 10 + SIM_SIZE[1],
+            10 + SIM_SIZE[0],
         )
-
-    # def resize_canvas(self, event):
-    #     self.canvas.config(width=event.width, height=event.height)
 
 
 if __name__ == "__main__":
@@ -364,6 +361,4 @@ if __name__ == "__main__":
     root.option_add("*tearOff", tk.FALSE)
     root.title("Ugabugejszyn")
     myapp = App(root)
-    root.update_idletasks()  # Update the window to get accurate sizing
-    root.minsize(*myapp.get_minsize())
     root.mainloop()
