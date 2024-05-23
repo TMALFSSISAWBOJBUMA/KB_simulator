@@ -3,7 +3,9 @@ from tkinter import ttk, filedialog, simpledialog
 from typing import Type, Optional
 from functools import partial
 import numpy as np
-import math
+from PIL import Image, ImageFilter
+from PIL.ImageTk import PhotoImage
+
 
 FREQ = 900  # MHz
 SIM_SIZE = (700, 1000)
@@ -157,21 +159,6 @@ class app_object:
         return self.name
 
 
-class BTS(app_object):
-
-    def draw(self, canvas: tk.Canvas) -> int:
-        from icons import BTS_ICON as icon
-
-        self.canvas = canvas
-        return self.make_movable(canvas.create_image(self.x, self.y, image=icon))
-
-    def set_position(self, x: int, y: int):
-        self.x, self.y = self.limit_position(x, y)
-        self.canvas.coords(self.id, self.x, self.y)
-        if self.outline_id:
-            self.canvas.coords(self.outline_id, *self.canvas.bbox(self.id))
-
-
 class UE(app_object):
     def draw(self, canvas: tk.Canvas) -> int:
         from icons import UE_ICON as icon
@@ -184,6 +171,141 @@ class UE(app_object):
         self.canvas.coords(self.id, self.x, self.y)
         if self.outline_id:
             self.canvas.coords(self.outline_id, *self.canvas.bbox(self.id))
+
+
+def get_cropped_matrix(mat):
+    idx = np.where(mat)
+    p = np.array(mat.shape) // 2
+    mx, my = (max(abs(p[i] - idx[i].min()), abs(idx[i].max() - p[i])) for i in range(2))
+    return mat[p[0] - mx : p[0] + mx + 1, p[1] - my : p[1] + my + 1]
+
+
+def reorganize_array(arr):
+    # Determine the midpoints for rows and columns
+    mid_row = arr.shape[0] // 2
+    mid_col = arr.shape[1] // 2
+
+    # Split the array into four subarrays
+    top_left = arr[:mid_row, :mid_col]
+    top_right = arr[:mid_row, mid_col:]
+    bottom_left = arr[mid_row:, :mid_col]
+    bottom_right = arr[mid_row:, mid_col:]
+
+    # Reorganize the subarrays
+    return np.block([[bottom_right, bottom_left], [top_right, top_left]])
+
+
+class BTS(app_object):
+    def __init__(self, name) -> None:
+        super().__init__(name)
+        X, Y = np.ogrid[: self.range * 2, : self.range * 2]
+        dist = (X - self.range) ** 2 + (Y - self.range) ** 2
+        self.signal_map = dist <= self.range**2
+
+    _radiation_pattern: np.ndarray
+
+    @property
+    def radiation_pattern(self):
+        return self._radiation_pattern
+
+    @radiation_pattern.setter
+    def radiation_pattern(self, value):
+        self._radiation_pattern = value
+        self.calc_signal_map()
+
+    _signal_map: np.ndarray
+
+    @property
+    def signal_map(self):
+        return self._signal_map
+
+    @signal_map.setter
+    def signal_map(self, value):
+        self._signal_map = value
+        self.plot_signal()
+        # update view
+
+    sig_plot_id: int = None
+    img: PhotoImage = None
+
+    def plot_signal(self):
+        if not self.id:
+            return
+        img = (
+            Image.fromarray(self._signal_map)
+            .filter(ImageFilter.FIND_EDGES)
+            .convert("P")
+        )
+        img.putpalette([255, 255, 255, 0, 255, 0] * 128)
+        self.img = PhotoImage(img)
+        if self.sig_plot_id:
+            self.canvas.itemconfig(self.sig_plot_id, image=self.img)
+        else:
+            self.sig_plot_id = self.canvas.create_image(self.x, self.y, image=self.img)
+            self.canvas.tag_lower(self.sig_plot_id)
+
+    power: float = 30  # dBm
+    range: int = 50
+    height: float = 1.5
+    angle: float = 0.0
+    _editable: list[str] = ["range", "height", "angle"]
+
+    def check_signal(self, obstacle_map: np.ndarray, ue: UE) -> np.ndarray:
+        """Checks wheter the UEs' signal is good enough for transmission
+
+        Args:
+            obstacle_map (np.ndarray): mask with ones set where obstacles are present
+            ue (UE): user device
+        Returns:
+            bool: True if UE has signal from this BTS
+        """
+        d = [ue.x - self.x, ue.y - self.y]
+        if (
+            abs(d(0)) > self.signal_map.shape(0) / 2
+            or abs(d(1)) > self.signal_map.shape(1) / 2
+            or (not self.signal_map[d(0), d(1)])
+        ):
+            return False
+
+        a = d(1) / d(0)  # slope
+
+        if d(1) > d(0):  # more range over y
+            return obstacle_map[
+                [
+                    [round(self.y + (y - self.y) / a), y]
+                    for y in range(self.y, ue.y, -1 if self.y > ue.y else 1)
+                ]
+            ].any()
+
+        return obstacle_map[
+            [
+                [x, round(self.x + a * (x - self.x))]
+                for x in range(self.x, ue.x, -1 if self.x > ue.x else 1)
+            ]
+        ].any()
+
+    def draw(self, canvas: tk.Canvas) -> int:
+        from icons import BTS_ICON as icon
+
+        self.canvas = canvas
+        self.make_movable(canvas.create_image(self.x, self.y, image=icon))
+        self.plot_signal()
+        return self.id
+
+    def set_position(self, x: int, y: int):
+        self.x, self.y = self.limit_position(x, y)
+        self.canvas.coords(self.id, self.x, self.y)
+        self.canvas.coords(self.sig_plot_id, self.x, self.y)
+        if self.outline_id:
+            self.canvas.coords(self.outline_id, *self.canvas.bbox(self.id))
+
+    def _save_editables(self, window):
+        if not super()._save_editables(window):
+            return False
+        X, Y = np.ogrid[: self.range * 2, : self.range * 2]
+        dist = (X - self.range) ** 2 + (Y - self.range) ** 2
+        self.signal_map = dist <= self.range**2
+        return True
 
 
 class Obstacle(app_object):
