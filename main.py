@@ -65,6 +65,8 @@ class app_object:
         self.set_position(int(prop("x")), int(prop("y")))
         if self._save_editables(window):
             window.destroy()
+            if hasattr(self, "on_update"):
+                self.on_update(self)
 
     def _edit_editables(self, window: tk.Toplevel):
         for i, param in enumerate(self._editable, start=window.grid_size()[0]):
@@ -346,16 +348,21 @@ class object_manager(ttk.Frame):
         listbox.bind("<Button-1>", self.handle_click)
         frame.rowconfigure(1, weight=1)
 
+    def object_updated(self, obj):
+        cls = type(obj)
+        self.obj_lists[cls.__name__].set(
+            [str(obj) for obj in self.objects if type(obj) is cls]
+        )
+
     def add_new(self, cls: Type[app_object]):
         name = simpledialog.askstring(
             "Object Name", f"Enter name for new {cls.__name__}:"
         )
         if name:
             obj = cls(name)
+            obj.on_update = self.object_updated
             self.objects.append(obj)
-            self.obj_lists[cls.__name__].set(
-                [str(obj) for obj in self.objects if type(obj) is cls]
-            )
+            self.object_updated(obj)
             obj.draw(self.canvas)
 
     def remove_object(self, obj: Type[app_object]):
