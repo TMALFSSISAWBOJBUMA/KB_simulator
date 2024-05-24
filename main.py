@@ -327,7 +327,6 @@ class object_manager(ttk.Frame):
     def __init__(self, master, canvas: tk.Canvas):
         self.canvas = canvas
         super().__init__(master)
-        self.pack(fill=tk.BOTH, pady=5, expand=True)
 
     def register_class(self, cls: Type[app_object]):
         if len(self.obj_lists.keys()) > 0:
@@ -433,7 +432,8 @@ class object_manager(ttk.Frame):
             lb: tk.Listbox = event.widget
             if len(lb.curselection()) == 0:
                 return
-            self.select_object(self.object_from_attr(name=lb.get(lb.curselection()[0])))
+            self.select_object(self.object_from_attr(
+                name=lb.get(lb.curselection()[0])))
 
     def handle_right_click(self, event: tk.Event):
         if event.widget is self.canvas:
@@ -453,19 +453,65 @@ class object_manager(ttk.Frame):
             obj.edit()
 
 
+class sim_frame(ttk.Frame):
+    OM: object_manager = None
+
+    def __init__(self, master, OM: object_manager):
+        super().__init__(master)
+        self.OM = OM
+        label = ttk.Label(self, text='Simulation',
+                          font=('Segoe UI', 14, 'bold'))
+        label.grid(row=0, column=0, sticky="W")
+        add_button = ttk.Button(
+            self, text="RUN", command=self.run_sim, width=4, padding=[0]
+        )
+        add_button.grid(row=0, column=1, sticky="E")
+        lf = ttk.Labelframe(
+            self, text='Select UEs to connect:', relief='sunken')
+        lf.grid(row=1, columnspan=2, pady=5, sticky="EW")
+        self.listbox = tk.Listbox(
+            lf, listvariable=self.OM.obj_lists['UE'], height=5, selectmode=tk.MULTIPLE)
+        self.listbox.pack(fill=tk.BOTH)
+
+        self.printout = tk.StringVar()
+        self.printout.set('Choose two UEs and press RUN')
+
+        lf = ttk.Labelframe(self, text='Output:', relief='sunken')
+        lf.grid(row=2, columnspan=2, sticky="NSEW")
+        self.update_idletasks()
+        txt = tk.Message(lf, textvariable=self.printout,
+                         width=190, anchor="nw")
+        txt.pack(fill=tk.BOTH, side=tk.LEFT)
+        self.rowconfigure(2, weight=1)
+        self.columnconfigure(0, minsize=170)
+
+    def run_sim(self):
+        self.print("Starting analysis...", clear=True)
+        ues = self.listbox.curselection()
+        if len(ues) != 2:
+            return self.print("ERR: Select two UEs!")
+        return
+
 class App(ttk.Frame):
     def __init__(self, master: tk.Tk):
         super().__init__(master)
         self.pack(padx=5, pady=5, expand=True, fill=tk.BOTH)
         self.canvas = tk.Canvas(self, bg="white")
-        self.canvas.pack(side=tk.RIGHT, expand=True, fill=tk.BOTH)
         # self.bind("<Configure>", self.resize_canvas)
-        s = ttk.Separator(self, orient=tk.VERTICAL)
-        s.pack(side=tk.RIGHT, fill=tk.Y, padx=5)
         self.OM = object_manager(self, self.canvas)
         self.OM.register_class(BTS)
         self.OM.register_class(UE)
         self.OM.register_class(Obstacle)
+        self.sim = sim_frame(self, self.OM)
+
+        s = ttk.Separator(self, orient=tk.VERTICAL)
+
+        self.OM.pack(side=tk.LEFT, fill=tk.Y, pady=5)
+        s.pack(side=tk.LEFT, fill=tk.Y, padx=5)
+        self.canvas.pack(side=tk.LEFT, expand=True, fill=tk.BOTH,)
+        s = ttk.Separator(self, orient=tk.VERTICAL)
+        s.pack(side=tk.LEFT, fill=tk.Y, padx=5)
+        self.sim.pack(side=tk.RIGHT, fill=tk.Y)
 
         self.canvas.bind("<Button-1>", self.OM.handle_click)
         self.canvas.bind("<Button-3>", self.OM.handle_right_click)
@@ -473,7 +519,8 @@ class App(ttk.Frame):
         master.update_idletasks()
         master.minsize(self.winfo_reqwidth() + 10, self.winfo_reqheight() + 10)
         master.maxsize(
-            self.OM.winfo_reqwidth() + s.winfo_reqwidth() + 10 + SIM_SIZE[1],
+            self.OM.winfo_reqwidth()+self.sim.winfo_reqwidth() + 2 *
+            s.winfo_reqwidth() + 10 + SIM_SIZE[1],
             10 + SIM_SIZE[0],
         )
 
