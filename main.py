@@ -252,7 +252,7 @@ class BTS(app_object):
     angle: float = 0.0
     _editable: list[str] = ["range", "height", "angle"]
 
-    def check_signal(self, obstacle_map: np.ndarray, ue: UE) -> np.ndarray:
+    def check_signal(self, obstacle_map: np.ndarray, ue: UE) -> bool:
         """Checks wheter the UEs' signal is good enough for transmission
 
         Args:
@@ -262,24 +262,29 @@ class BTS(app_object):
             bool: True if UE has signal from this BTS
         """
         d = [ue.x - self.x, ue.y - self.y]
+        s = self.signal_map.shape
         if (
-            abs(d(0)) > self.signal_map.shape(0) / 2
-            or abs(d(1)) > self.signal_map.shape(1) / 2
-            or (not self.signal_map[d(0), d(1)])
+            abs(d[0]) > s[0] / 2
+            or abs(d[1]) > s[1] / 2
+            or (
+                not self.signal_map[
+                    (d[0] + s[0] // 2) % s[0], (d[1] + s[1] // 2) % s[1]
+                ]
+            )
         ):
             return False
 
-        a = d(1) / d(0)  # slope
+        a = d[1] / d[0]  # slope
 
-        if d(1) > d(0):  # more range over y
-            return obstacle_map[
+        if d[1] > d[0]:  # more range over y
+            return not obstacle_map[
                 [
                     [round(self.y + (y - self.y) / a), y]
                     for y in range(self.y, ue.y, -1 if self.y > ue.y else 1)
                 ]
             ].any()
 
-        return obstacle_map[
+        return not obstacle_map[
             [
                 [x, round(self.x + a * (x - self.x))]
                 for x in range(self.x, ue.x, -1 if self.x > ue.x else 1)
@@ -442,8 +447,7 @@ class object_manager(ttk.Frame):
             lb: tk.Listbox = event.widget
             if len(lb.curselection()) == 0:
                 return
-            self.select_object(self.object_from_attr(
-                name=lb.get(lb.curselection()[0])))
+            self.select_object(self.object_from_attr(name=lb.get(lb.curselection()[0])))
 
     def handle_right_click(self, event: tk.Event):
         if event.widget is self.canvas:
@@ -559,7 +563,11 @@ class App(ttk.Frame):
 
         self.OM.pack(side=tk.LEFT, fill=tk.Y, pady=5)
         s.pack(side=tk.LEFT, fill=tk.Y, padx=5)
-        self.canvas.pack(side=tk.LEFT, expand=True, fill=tk.BOTH,)
+        self.canvas.pack(
+            side=tk.LEFT,
+            expand=True,
+            fill=tk.BOTH,
+        )
         s = ttk.Separator(self, orient=tk.VERTICAL)
         s.pack(side=tk.LEFT, fill=tk.Y, padx=5)
         self.sim.pack(side=tk.RIGHT, fill=tk.Y)
@@ -570,8 +578,11 @@ class App(ttk.Frame):
         master.update_idletasks()
         master.minsize(self.winfo_reqwidth() + 10, self.winfo_reqheight() + 10)
         master.maxsize(
-            self.OM.winfo_reqwidth()+self.sim.winfo_reqwidth() + 2 *
-            s.winfo_reqwidth() + 10 + SIM_SIZE[1],
+            self.OM.winfo_reqwidth()
+            + self.sim.winfo_reqwidth()
+            + 2 * s.winfo_reqwidth()
+            + 10
+            + SIM_SIZE[1],
             10 + SIM_SIZE[0],
         )
 
