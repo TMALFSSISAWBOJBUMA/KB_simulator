@@ -236,7 +236,7 @@ class BTS(app_object):
             .filter(ImageFilter.FIND_EDGES)
             .convert("P")
         )
-        img.putpalette([255, 255, 255, 0, 255, 0] * 128)
+        img.putpalette([0, 0, 0, 0, 0, 255, 0, 255] * 128, rawmode="RGBA")
         self.img = PhotoImage(img)
         if self.sig_plot_id:
             self.canvas.itemconfig(self.sig_plot_id, image=self.img)
