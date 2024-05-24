@@ -225,7 +225,6 @@ class BTS(app_object):
     def signal_map(self, value):
         self._signal_map = value
         self.plot_signal()
-        # update view
 
     sig_plot_id: int = None
     img: PhotoImage = None
@@ -298,6 +297,11 @@ class BTS(app_object):
         self.make_movable(canvas.create_image(self.x, self.y, image=icon))
         self.plot_signal()
         return self.id
+
+    def delete(self):
+        super().delete()
+        if self.sig_plot_id:
+            self.canvas.delete(self.sig_plot_id)
 
     def set_position(self, x: int, y: int):
         self.x, self.y = self.limit_position(x, y)
