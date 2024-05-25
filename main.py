@@ -273,22 +273,17 @@ class BTS(app_object):
         ):
             return False
 
-        a = d[1] / d[0]  # slope
-
-        if d[1] > d[0]:  # more range over y
-            return not obstacle_map[
-                [
-                    [round(self.y + (y - self.y) / a), y]
-                    for y in range(self.y, ue.y, -1 if self.y > ue.y else 1)
-                ]
-            ].any()
-
-        return not obstacle_map[
-            [
-                [x, round(self.x + a * (x - self.x))]
-                for x in range(self.x, ue.x, -1 if self.x > ue.x else 1)
-            ]
-        ].any()
+        if abs(d[1]) > abs(d[0]):  # more range over y
+            a = d[0] / d[1]
+            for y in range(self.y, ue.y, -1 if self.y > ue.y else 1):
+                if obstacle_map[round(self.x + (y - self.y)*a), y]:
+                    return False
+        else:
+            a = d[1] / d[0]
+            for x in range(self.x, ue.x, -1 if self.x > ue.x else 1):
+                if obstacle_map[x, round(self.y + a * (x - self.x))]:
+                    return False
+        return True
 
     def draw(self, canvas: tk.Canvas) -> int:
         from icons import BTS_ICON as icon
@@ -330,7 +325,9 @@ class Obstacle(app_object):
         return True
 
     def add_self_to_map(self, ob_map: np.ndarray):
-        pass
+        X, Y = np.ogrid[: ob_map.shape[0], : ob_map.shape[1]]
+        dist = (X - self.x) ** 2 + (Y - self.y) ** 2
+        ob_map[dist <= self.size**2] = 1
 
 
 class object_manager(ttk.Frame):
