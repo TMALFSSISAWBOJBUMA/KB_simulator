@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, simpledialog
-from typing import Type, Optional
+from typing import Type, Optional, TextIO
 from functools import partial
 import numpy as np
 from PIL import Image, ImageFilter
@@ -8,7 +8,39 @@ from PIL.ImageTk import PhotoImage
 import io
 
 FREQ = 900  # MHz
-SIM_SIZE = (700, 1000)
+RECV_SENSITIVITY = -90  # dBm
+RECV_HEIGHT = 1.5  # m
+GRID_SIZE = 1  # km
+
+# Friis equation:
+# P_r = P_t + G_t + G_r + L_f
+# assume isotropic receiver antenna
+# P_r = P_t + G_t - 32.5 - 20 * log10(f) - 20 * log10(d)
+# we can use distance squared to ommit square root
+# P_r = P_t + G_t - 32.5 - 20 * log10(f) - 10 * log10(d**2)
+# UE has signal if P_r > RECV_SENSITIVITY:
+# P_t + G_t - 10 * log10(d**2) > RECV_SENSITIVITY + 32.5 + 20 * log10(f)
+# P_t + G_t - 10 * log10(d**2) > RECV_MAGIC
+
+RECV_MAGIC = RECV_SENSITIVITY + 32.5 + 20 * np.log10(FREQ)
+
+# radiation patterns are stored as gain value (in dBi) in 360x360 matrices
+# axis 0 is azimuth, axis 1 is elevation from the main radiation direction
+# pattern[i,j] returns gain for horizontal angle {i} degrees and vertical angle {j}
+hw_dipole_radiation = np.cos(np.radians(np.ogrid[:360])) ** 2
+hw_dipole_radiation = 10 * np.log10(hw_dipole_radiation) + 2.15  # dBi
+# hw_dipole_radiation = np.tile(hw_dipole_radiation, (360, 1))
+hw_dipole_radiation = np.vstack([np.zeros(360), hw_dipole_radiation])
+
+# def get_signal_map(dista)
+SIM_SIZE = (1000, 700)
+CALC_SIZE = float(max(SIM_SIZE) // 2)
+X, Y = np.ogrid[-CALC_SIZE:CALC_SIZE, -CALC_SIZE:CALC_SIZE]
+X *= GRID_SIZE
+Y *= GRID_SIZE
+DISTANCE = X**2 + Y**2
+DISTANCE_SQRT = np.sqrt(DISTANCE)
+AZIMUTH = np.rad2deg(np.arctan2(X, Y)).astype(int)
 
 
 def center_Toplevel(top: tk.Toplevel):
@@ -28,6 +60,25 @@ def center_Toplevel(top: tk.Toplevel):
     # Set the geometry of the Toplevel window to place it at the calculated position
     top.geometry(f"+{position_right}+{position_down}")
     top.minsize(top.winfo_reqwidth(), top.winfo_reqheight())
+
+
+def parse_msi_file(fp: TextIO) -> np.ndarray:  # simple parser
+    gain = 0.0
+    pattern = np.empty((2, 360))
+    reading_index = -1
+    for line in fp.readlines():
+        if line.startswith("GAIN"):
+            gain = float(line.split()[1])
+        elif line.startswith("HORIZONTAL"):
+            reading_index = 0
+            i = 0
+        elif line.startswith("VERTICAL"):
+            reading_index = 1
+            i = 0
+        elif reading_index != -1:
+            pattern[reading_index, i] = -float(line.split()[1])
+            i += 1
+    return pattern + gain / 2
 
 
 class app_object:
@@ -53,11 +104,14 @@ class app_object:
             self.set_position(self.x + step, self.y)
 
     def _save_editables(self, window):
-        for param in self._editable:
-            setattr(
-                self, param, type(getattr(self, param))(window.entries[param].get())
-            )
-        return True
+        try:
+            for param in self._editable:
+                setattr(
+                    self, param, type(getattr(self, param))(window.entries[param].get())
+                )
+            return True
+        except ValueError:
+            return False
 
     def save_properties(self, window):
         prop = window.prop
@@ -69,7 +123,7 @@ class app_object:
                 self.on_update(self)
 
     def _edit_editables(self, window: tk.Toplevel):
-        for i, param in enumerate(self._editable, start=window.grid_size()[0]):
+        for i, param in enumerate(self._editable, start=window.grid_size()[1]):
             tk.Label(window, text=f"{param}:").grid(row=i, column=1)
             e = tk.Entry(window)
             e.grid(row=i, column=2)
@@ -200,9 +254,7 @@ def reorganize_array(arr):
 class BTS(app_object):
     def __init__(self, name) -> None:
         super().__init__(name)
-        X, Y = np.ogrid[: self.range * 2, : self.range * 2]
-        dist = (X - self.range) ** 2 + (Y - self.range) ** 2
-        self.signal_map = dist <= self.range**2
+        self.radiation_pattern = hw_dipole_radiation
 
     _radiation_pattern: np.ndarray
 
@@ -216,6 +268,15 @@ class BTS(app_object):
         self.calc_signal_map()
 
     _signal_map: np.ndarray
+
+    def calc_signal_map(self):
+        tmp = self.power - 10 * np.log10(DISTANCE + (self.height - RECV_HEIGHT) ** 2)
+        elevation = np.arctan2(DISTANCE_SQRT, (self.height - RECV_HEIGHT)).astype(int)
+        tmp += (
+            self.radiation_pattern[0, ((AZIMUTH + self.angle) % 360)]
+            + self.radiation_pattern[1, elevation]
+        )
+        self.signal_map = get_cropped_matrix(tmp > RECV_MAGIC)
 
     @property
     def signal_map(self):
@@ -246,10 +307,9 @@ class BTS(app_object):
             self.canvas.tag_lower(self.sig_plot_id)
 
     power: float = 30  # dBm
-    range: int = 50
-    height: float = 1.5
-    angle: float = 0.0
-    _editable: list[str] = ["range", "height", "angle"]
+    height: float = 20.0
+    angle: int = 0
+    _editable: list[str] = ["power", "height", "angle"]
 
     def check_signal(self, obstacle_map: np.ndarray, ue: UE) -> bool:
         """Checks wheter the UEs' signal is good enough for transmission
@@ -276,7 +336,7 @@ class BTS(app_object):
         if abs(d[1]) > abs(d[0]):  # more range over y
             a = d[0] / d[1]
             for y in range(self.y, ue.y, -1 if self.y > ue.y else 1):
-                if obstacle_map[round(self.x + (y - self.y)*a), y]:
+                if obstacle_map[round(self.x + (y - self.y) * a), y]:
                     return False
         else:
             a = d[1] / d[0]
@@ -306,12 +366,35 @@ class BTS(app_object):
             self.canvas.coords(self.outline_id, *self.canvas.bbox(self.id))
 
     def _save_editables(self, window):
+        changed = any(
+            window.entries[param] != getattr(self, param) for param in self._editable
+        )
         if not super()._save_editables(window):
             return False
-        X, Y = np.ogrid[: self.range * 2, : self.range * 2]
-        dist = (X - self.range) ** 2 + (Y - self.range) ** 2
-        self.signal_map = dist <= self.range**2
+        if "pattern" in window.entries:
+            with open(window.entries["pattern"], "r") as fp:
+                self.radiation_pattern = parse_msi_file(fp)
+        elif changed:
+            self.calc_signal_map()
         return True
+
+    def _edit_editables(self, window: tk.Toplevel):
+        super()._edit_editables(window)
+        row = window.grid_size()[1]
+        tk.Label(window, text="Pattern").grid(row=row, column=1)
+        file_button = tk.Button(
+            window,
+            text="Loud",
+            command=lambda: window.entries.update(
+                {
+                    "pattern": filedialog.askopenfilename(
+                        filetypes=[("Radiation pattern files", "*.msi")],
+                        title="Select radiation pattern file",
+                    )
+                }
+            ),
+        )
+        file_button.grid(row=row, column=2)
 
 
 class Obstacle(app_object):
@@ -583,8 +666,8 @@ class App(ttk.Frame):
             + self.sim.winfo_reqwidth()
             + 2 * s.winfo_reqwidth()
             + 10
-            + SIM_SIZE[1],
-            10 + SIM_SIZE[0],
+            + SIM_SIZE[0],
+            10 + SIM_SIZE[1],
         )
 
 
