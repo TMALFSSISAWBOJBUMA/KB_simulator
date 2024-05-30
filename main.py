@@ -6,6 +6,7 @@ import numpy as np
 from PIL import Image, ImageFilter
 from PIL.ImageTk import PhotoImage
 import io
+import pathlib as pl
 
 FREQ = 900  # MHz
 RECV_SENSITIVITY = -90  # dBm
@@ -124,7 +125,7 @@ class app_object:
 
     def _edit_editables(self, window: tk.Toplevel):
         for i, param in enumerate(self._editable, start=window.grid_size()[1]):
-            tk.Label(window, text=f"{param}:").grid(row=i, column=1)
+            tk.Label(window, text=f"{param}:").grid(row=i, column=1, sticky="W")
             e = tk.Entry(window)
             e.grid(row=i, column=2)
             e.insert(0, getattr(self, param))
@@ -134,9 +135,9 @@ class app_object:
         window = tk.Toplevel(self.canvas.master, padx=10, pady=5)
         window.entries = dict()
         window.prop = lambda property: window.entries[property].get()
-        tk.Label(window, text="Edit Properties").grid(columnspan=4)
+        tk.Label(window, text="Edit Properties").grid(column=1, columnspan=2)
         for i, param in enumerate(("name", "x", "y"), 1):
-            tk.Label(window, text=f"{param}:").grid(row=i, column=1)
+            tk.Label(window, text=f"{param}:").grid(row=i, column=1, sticky="W")
             e = tk.Entry(window)
             e.grid(row=i, column=2)
             e.insert(0, getattr(self, param))
@@ -231,6 +232,8 @@ class UE(app_object):
 
 def get_cropped_matrix(mat):
     idx = np.where(mat)
+    if not idx[0].size:
+        return np.zeros((3, 3), "bool")
     p = np.array(mat.shape) // 2
     mx, my = (max(abs(p[i] - idx[i].min()), abs(idx[i].max() - p[i])) for i in range(2))
     return mat[p[0] - mx : p[0] + mx + 1, p[1] - my : p[1] + my + 1]
@@ -251,10 +254,18 @@ def reorganize_array(arr):
     return np.block([[bottom_right, bottom_left], [top_right, top_left]])
 
 
+def compare_entry_value(entry, value):
+    try:
+        return type(value)(entry.get()) == value
+    except ValueError:
+        return False
+
+
 class BTS(app_object):
     def __init__(self, name) -> None:
         super().__init__(name)
         self.radiation_pattern = hw_dipole_radiation
+        self.antenna_name = tk.StringVar(value="half-wave dipole")
 
     _radiation_pattern: np.ndarray
 
@@ -306,7 +317,7 @@ class BTS(app_object):
             self.sig_plot_id = self.canvas.create_image(self.x, self.y, image=self.img)
             self.canvas.tag_lower(self.sig_plot_id)
 
-    power: float = 30  # dBm
+    power: float = 30.0  # dBm
     height: float = 20.0
     angle: int = 0
     _editable: list[str] = ["power", "height", "angle"]
@@ -323,11 +334,11 @@ class BTS(app_object):
         d = [ue.x - self.x, ue.y - self.y]
         s = self.signal_map.shape
         if (
-            abs(d[0]) > s[0] / 2
-            or abs(d[1]) > s[1] / 2
+            abs(d[0]) > s[1] / 2
+            or abs(d[1]) > s[0] / 2
             or (
                 not self.signal_map[
-                    (d[0] + s[0] // 2) % s[0], (d[1] + s[1] // 2) % s[1]
+                    (d[1] + s[0] // 2) % s[0], (d[0] + s[1] // 2) % s[1]
                 ]
             )
         ):
@@ -366,14 +377,18 @@ class BTS(app_object):
             self.canvas.coords(self.outline_id, *self.canvas.bbox(self.id))
 
     def _save_editables(self, window):
-        changed = any(
-            window.entries[param] != getattr(self, param) for param in self._editable
+        changed = not all(
+            compare_entry_value(window.entries[param], getattr(self, param))
+            for param in self._editable
         )
         if not super()._save_editables(window):
             return False
         if "pattern" in window.entries:
-            with open(window.entries["pattern"], "r") as fp:
-                self.radiation_pattern = parse_msi_file(fp)
+            if not window.entries["pattern"]:
+                self.radiation_pattern = hw_dipole_radiation
+            else:
+                with open(window.entries["pattern"], "r") as fp:
+                    self.radiation_pattern = parse_msi_file(fp)
         elif changed:
             self.calc_signal_map()
         return True
@@ -381,20 +396,34 @@ class BTS(app_object):
     def _edit_editables(self, window: tk.Toplevel):
         super()._edit_editables(window)
         row = window.grid_size()[1]
-        tk.Label(window, text="Pattern").grid(row=row, column=1)
-        file_button = tk.Button(
-            window,
-            text="Loud",
-            command=lambda: window.entries.update(
-                {
-                    "pattern": filedialog.askopenfilename(
-                        filetypes=[("Radiation pattern files", "*.msi")],
-                        title="Select radiation pattern file",
-                    )
-                }
-            ),
+        frame = tk.LabelFrame(window, relief="ridge", text="Antenna pattern")
+        frame.grid(row=row + 1, column=1, columnspan=2, sticky="EW")
+        frame.columnconfigure(0, weight=1)
+        frame.columnconfigure(1, pad=5)
+        frame.rowconfigure(1, pad=5)
+        tk.Label(frame, textvariable=self.antenna_name).grid(
+            column=0, rowspan=2, sticky="NSW"
         )
-        file_button.grid(row=row, column=2)
+
+        def file_pattern():
+            file = filedialog.askopenfilename(
+                filetypes=[("Radiation pattern files", "*.msi")],
+                title="Select radiation pattern file",
+            )
+            window.entries["pattern"] = file
+            self.antenna_name.set(pl.Path(file).name or "half-wave dipole")
+            window.focus_set()
+
+        file_button = tk.Button(frame, text="Loud", command=file_pattern)
+
+        file_button.grid(row=0, column=1, sticky="EW")
+
+        def reset_pattern():
+            window.entries["pattern"] = None
+            self.antenna_name.set("half-wave dipole")
+
+        reset_button = tk.Button(frame, text="Reset", command=reset_pattern)
+        reset_button.grid(row=1, column=1, sticky="EW")
 
 
 class Obstacle(app_object):
@@ -598,14 +627,14 @@ class sim_frame(ttk.Frame):
         ob_map = np.zeros(
             (self.OM.canvas.winfo_height(), self.OM.canvas.winfo_width()), "bool"
         )
-        for obj in filter(lambda o: type(o) == Obstacle, self.OM.objects):
+        for obj in filter(lambda o: isinstance(o, Obstacle), self.OM.objects):
             obj: Obstacle
             obj.add_self_to_map(ob_map)
 
         # check bts availability
         ue1, ue2 = (self.OM.object_from_attr(name=self.listbox.get(idx)) for idx in ues)
         l_ue1, l_ue2 = list(), list()
-        for bts in filter(lambda o: type(o) == BTS, self.OM.objects):
+        for bts in filter(lambda o: isinstance(o, BTS), self.OM.objects):
             bts: BTS
             if bts.check_signal(ob_map, ue1):
                 l_ue1.append(bts.name)
