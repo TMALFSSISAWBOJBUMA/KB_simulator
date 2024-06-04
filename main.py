@@ -25,9 +25,9 @@ GRID_SIZE = 1  # km
 
 RECV_MAGIC = RECV_SENSITIVITY + 32.5 + 20 * np.log10(FREQ)
 
-# radiation patterns are stored as gain value (in dBi) in 360x360 matrices
-# axis 0 is azimuth, axis 1 is elevation from the main radiation direction
-# pattern[i,j] returns gain for horizontal angle {i} degrees and vertical angle {j}
+# radiation patterns are stored as gain value (in dBi) in 2x360 matrices
+# row 0 stores gain parts for each azimuth, row 1 for each elevation angle from the main radiation direction
+# pattern[0,i] + pattern[1,j] returns gain for horizontal angle {i} and vertical angle {j}
 hw_dipole_radiation = np.cos(np.radians(np.ogrid[:360])) ** 2
 hw_dipole_radiation = 10 * np.log10(hw_dipole_radiation) + 2.15  # dBi
 # hw_dipole_radiation = np.tile(hw_dipole_radiation, (360, 1))
@@ -79,6 +79,8 @@ def parse_msi_file(fp: TextIO) -> np.ndarray:  # simple parser
         elif reading_index != -1:
             pattern[reading_index, i] = -float(line.split()[1])
             i += 1
+    if reading_index == -1:
+        raise ValueError("Invalid file format")
     return pattern + gain / 2
 
 
