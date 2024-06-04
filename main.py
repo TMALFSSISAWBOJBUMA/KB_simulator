@@ -287,7 +287,7 @@ class BTS(app_object):
         elevation = np.arctan2(DISTANCE_SQRT, (self.height - RECV_HEIGHT)).astype(int)
         tmp += (
             self.radiation_pattern[0, ((AZIMUTH + self.angle) % 360)]
-            + self.radiation_pattern[1, elevation]
+            + self.radiation_pattern[1, ((elevation + self.tilt) % 360)]
         )
         self.signal_map = get_cropped_matrix(tmp > RECV_MAGIC)
 
@@ -322,7 +322,8 @@ class BTS(app_object):
     power: float = 30.0  # dBm
     height: float = 20.0
     angle: int = 0
-    _editable: list[str] = ["power", "height", "angle"]
+    tilt: int = 0
+    _editable: list[str] = ["power", "height", "angle", "tilt"]
 
     def check_signal(self, obstacle_map: np.ndarray, ue: UE) -> bool:
         """Checks wheter the UEs' signal is good enough for transmission
