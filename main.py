@@ -5,6 +5,7 @@ from functools import partial
 import numpy as np
 from PIL import Image, ImageFilter
 from PIL.ImageTk import PhotoImage
+import matplotlib.pyplot as plt
 import io
 import pathlib as pl
 
@@ -401,12 +402,7 @@ class BTS(app_object):
         row = window.grid_size()[1]
         frame = tk.LabelFrame(window, relief="ridge", text="Antenna pattern")
         frame.grid(row=row + 1, column=1, columnspan=2, sticky="EW")
-        frame.columnconfigure(0, weight=1)
-        frame.columnconfigure(1, pad=5)
-        frame.rowconfigure(1, pad=5)
-        tk.Label(frame, textvariable=self.antenna_name).grid(
-            column=0, rowspan=2, sticky="NSW"
-        )
+        tk.Label(frame, textvariable=self.antenna_name).grid(row=0, columnspan=3)
 
         def file_pattern():
             file = filedialog.askopenfilename(
@@ -418,15 +414,61 @@ class BTS(app_object):
             window.focus_set()
 
         file_button = tk.Button(frame, text="Loud", command=file_pattern)
-
-        file_button.grid(row=0, column=1, sticky="EW")
+        file_button.grid(row=1, column=0, sticky="EW")
 
         def reset_pattern():
             window.entries["pattern"] = None
             self.antenna_name.set("half-wave dipole")
 
         reset_button = tk.Button(frame, text="Reset", command=reset_pattern)
-        reset_button.grid(row=1, column=1, sticky="EW")
+        reset_button.grid(row=1, column=1, sticky="EW", padx=5)
+
+        def preview_pattern():
+            pattern = window.entries.get("pattern", None)
+
+            def show_pattern(pattern: np.ndarray):
+                fig = plt.figure(1)
+                fig.clear()
+                ax = fig.subplots()
+                angles = np.arange(-180, 181)
+                plt_data: np.ndarray = pattern[0, angles] + pattern[1, angles].reshape(
+                    -1, 1
+                )
+                cax = ax.pcolormesh(
+                    angles, angles, plt_data, vmin=max(plt_data.min(), -50)
+                )
+                ax.set_xlabel("Azimuth [deg]")
+                ax.set_ylabel("Elevation [deg]")
+                fig.colorbar(cax, label="Gain [dBi]")
+                ax.set_title(
+                    f"Flattened radiation pattern of {self.antenna_name.get()}"
+                )
+                fig.tight_layout()
+                fig.show()
+
+            if pattern:
+                try:
+                    with open(pattern, "r") as fp:
+                        show_pattern(
+                            parse_msi_file(fp),
+                        )
+                except Exception as e:
+                    print(e)
+                    return
+            else:
+                show_pattern(hw_dipole_radiation)
+
+        reset_button = tk.Button(frame, text="Preview", command=preview_pattern)
+        reset_button.grid(row=1, column=2, sticky="EW")
+
+        frame.columnconfigure([0, 1, 2], weight=1, uniform="fred") #pad doesn't seem to work here
+        frame.rowconfigure(0, pad=5)
+
+        def on_close():
+            plt.close("all")
+            window.destroy()
+
+        window.protocol("WM_DELETE_WINDOW", on_close)
 
 
 class Obstacle(app_object):
