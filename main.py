@@ -8,6 +8,7 @@ from PIL.ImageTk import PhotoImage
 import matplotlib.pyplot as plt
 import io
 import pathlib as pl
+from patterns import HALF_WAVE_DIPOLE, pattern_from_msi_file
 
 FREQ = 900  # MHz
 RECV_SENSITIVITY = -90  # dBm
@@ -25,14 +26,6 @@ GRID_SIZE = 1  # km
 # P_t + G_t - 10 * log10(d**2) > RECV_MAGIC
 
 RECV_MAGIC = RECV_SENSITIVITY + 32.5 + 20 * np.log10(FREQ)
-
-# radiation patterns are stored as gain value (in dBi) in 2x360 matrices
-# row 0 stores gain parts for each azimuth, row 1 for each elevation angle from the main radiation direction
-# pattern[0,i] + pattern[1,j] returns gain for horizontal angle {i} and vertical angle {j}
-hw_dipole_radiation = np.cos(np.radians(np.ogrid[:360])) ** 2
-hw_dipole_radiation = 10 * np.log10(hw_dipole_radiation) + 2.15  # dBi
-# hw_dipole_radiation = np.tile(hw_dipole_radiation, (360, 1))
-hw_dipole_radiation = np.vstack([np.zeros(360), hw_dipole_radiation])
 
 # def get_signal_map(dista)
 SIM_SIZE = (1000, 700)
@@ -62,27 +55,6 @@ def center_Toplevel(top: tk.Toplevel):
     # Set the geometry of the Toplevel window to place it at the calculated position
     top.geometry(f"+{position_right}+{position_down}")
     top.minsize(top.winfo_reqwidth(), top.winfo_reqheight())
-
-
-def parse_msi_file(fp: TextIO) -> np.ndarray:  # simple parser
-    gain = 0.0
-    pattern = np.empty((2, 360))
-    reading_index = -1
-    for line in fp.readlines():
-        if line.startswith("GAIN"):
-            gain = float(line.split()[1])
-        elif line.startswith("HORIZONTAL"):
-            reading_index = 0
-            i = 0
-        elif line.startswith("VERTICAL"):
-            reading_index = 1
-            i = 0
-        elif reading_index != -1:
-            pattern[reading_index, i] = -float(line.split()[1])
-            i += 1
-    if reading_index == -1:
-        raise ValueError("Invalid file format")
-    return pattern + gain / 2
 
 
 class app_object:
@@ -267,7 +239,7 @@ def compare_entry_value(entry, value):
 class BTS(app_object):
     def __init__(self, name) -> None:
         super().__init__(name)
-        self.radiation_pattern = hw_dipole_radiation
+        self.radiation_pattern = HALF_WAVE_DIPOLE
         self.antenna_name = tk.StringVar(value="half-wave dipole")
 
     _radiation_pattern: np.ndarray
@@ -389,10 +361,10 @@ class BTS(app_object):
             return False
         if "pattern" in window.entries:
             if not window.entries["pattern"]:
-                self.radiation_pattern = hw_dipole_radiation
+                self.radiation_pattern = HALF_WAVE_DIPOLE
             else:
                 with open(window.entries["pattern"], "r") as fp:
-                    self.radiation_pattern = parse_msi_file(fp)
+                    self.radiation_pattern = pattern_from_msi_file(fp)
         elif changed:
             self.calc_signal_map()
         return True
@@ -450,18 +422,20 @@ class BTS(app_object):
                 try:
                     with open(pattern, "r") as fp:
                         show_pattern(
-                            parse_msi_file(fp),
+                            pattern_from_msi_file(fp),
                         )
                 except Exception as e:
                     print(e)
                     return
             else:
-                show_pattern(hw_dipole_radiation)
+                show_pattern(HALF_WAVE_DIPOLE)
 
         reset_button = tk.Button(frame, text="Preview", command=preview_pattern)
         reset_button.grid(row=1, column=2, sticky="EW")
 
-        frame.columnconfigure([0, 1, 2], weight=1, uniform="fred") #pad doesn't seem to work here
+        frame.columnconfigure(
+            [0, 1, 2], weight=1, uniform="fred"
+        )  # pad doesn't seem to work here
         frame.rowconfigure(0, pad=5)
 
         def on_close():
