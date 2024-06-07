@@ -16,8 +16,8 @@ except ImportError:
 # radiation patterns are stored as gain value (in dBi) in 2x360 matrices
 # row 0 stores gain parts for each azimuth, row 1 for each elevation angle from the main radiation direction
 # (pattern[0,i] + pattern[1,j]) represents gain for horizontal angle {i} and vertical angle {j}
-HALF_WAVE_DIPOLE = np.cos(np.radians(np.ogrid[:360]))
-HALF_WAVE_DIPOLE = 20 * np.log10(HALF_WAVE_DIPOLE) + 2.15  # dBi
+HALF_WAVE_DIPOLE = np.cos(np.radians(np.ogrid[:360]))**2
+HALF_WAVE_DIPOLE = 10 * np.log10(HALF_WAVE_DIPOLE) + 2.15  # dBi
 # hw_dipole_radiation = np.tile(hw_dipole_radiation, (360, 1))
 HALF_WAVE_DIPOLE = np.vstack([np.zeros(360), HALF_WAVE_DIPOLE])
 """Half-wave dipole radiation pattern"""
